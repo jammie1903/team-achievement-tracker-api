@@ -11,12 +11,12 @@ const url = `mongodb+srv://${username}:${password}@main-cluster-eiicm.mongodb.ne
 export default class MongoService implements IMongoService {
     public run<T>(fn: (db: Db) => T | Promise<T>): Promise<T> {
         return new Promise<T>((res, rej) => {
-            MongoClient.connect(url, (err: MongoError, db: MongoClient) => {
+            MongoClient.connect(url, async (err: MongoError, db: MongoClient) => {
                 if (err) {
                     rej(err);
                 }
                 try {
-                    res(fn(db.db("user-data")));
+                    res(await fn(db.db("user-data")));
                 } catch (e) {
                     rej(e);
                 } finally {

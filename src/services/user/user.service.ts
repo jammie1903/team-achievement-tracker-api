@@ -1,6 +1,7 @@
 import { Service, Autowired } from "express-utils";
 import { IUserService } from "./i-user.service";
 import fetch from "node-fetch";
+import { Unauthorized } from "http-errors";
 import { IUser } from "../../interfaces/i-user";
 import { IMongoService } from "../mongo/i-mongo.service";
 import { Db, Cursor } from "mongodb";
@@ -32,9 +33,9 @@ export default class UserService implements IUserService {
 
     private updateCache(user) {
         const keys = Object.keys(this.userCache)
-        for(const key of keys) {
+        for (const key of keys) {
             if (this.userCache[key].user.id === user.id) {
-                this.userCache[key] = {user, time: Date.now()};
+                this.userCache[key] = { user, time: Date.now() };
                 return;
             }
         };
@@ -46,6 +47,9 @@ export default class UserService implements IUserService {
         }
         const response = await fetch("https://team-achievement-tracker.netlify.com/.netlify/identity/user", { headers: { Authorization: "Bearer " + token } });
         const json = await response.json();
+        if (!response.ok) {
+            throw new Unauthorized();
+        }
         const user = {
             id: json.id,
             email: json.email,
@@ -55,30 +59,33 @@ export default class UserService implements IUserService {
             isTeamLead: json.user_metadata.isTeamLead,
             teamLead: null,
         }
-        const dbUser = this.readUserFromDb(user.id);
+        const dbUser = await this.readUserFromDb(user.id);
         if (dbUser) {
             Object.assign(user, dbUser);
         }
-        this.userCache[token] = {user, time: Date.now()};
+        this.userCache[token] = { user, time: Date.now() };
         return user;
     }
 
     private readUserFromDb(id: string, getTeamLead = true): Promise<IUser> {
+        return this.mongoService.run((db: Db) => this.doReadUserFromDb(db, id, getTeamLead));
+    }
+
+    private doReadUserFromDb(db: Db, id: string, getTeamLead = true): Promise<IUser> {
         const query: any = {
             _id: id
         };
-        return this.mongoService.run((db: Db) =>
-            db.collection("users").findOne(query)
-                .then(async (user: IMongoItem<IUser>) => {
-                    if (!user) return null;
-                    user.id = user._id;
-                    delete user._id;
-                    if (user.teamLead && getTeamLead) {
-                        user.teamLead = await this.readUserFromDb(user.teamLead as string, false);
-                    }
-                    return user;
-                })
-        );
+
+        return db.collection("users").findOne(query)
+            .then(async (user: IMongoItem<IUser>) => {
+                if (!user) return null;
+                user.id = user._id;
+                delete user._id;
+                if (user.teamLead && getTeamLead) {
+                    user.teamLead = await this.doReadUserFromDb(db, user.teamLead as string, false);
+                }
+                return user;
+            })
 
     }
 
@@ -102,44 +109,55 @@ export default class UserService implements IUserService {
             const dbUser: IUser = {} as IUser;
 
             let firstName = user.firstName;
-            if(updates.firstName && updates.firstName.trim()) {
+            if (updates.firstName && updates.firstName.trim()) {
                 firstName = updates.firstName.trim();
                 dbUser.firstName = firstName;
             }
 
             let lastName = user.lastName;
-            if(updates.lastName && updates.lastName.trim()) {
+            if (updates.lastName && updates.lastName.trim()) {
                 lastName = updates.lastName.trim();
                 dbUser.lastName = lastName;
             }
 
             const fullName = `${firstName} ${lastName}`;
-            if(user.name !== fullName) {
+            if (user.name !== fullName) {
                 dbUser.name = fullName;
             }
-
+            let isTeamLead = user.isTeamLead;
             if (updates.isTeamLead !== undefined) {
                 dbUser.isTeamLead = !!updates.isTeamLead;
+                isTeamLead = dbUser.isTeamLead;
+                if (!isTeamLead) {
+                    dbUser.teamLead = null;
+                }
             }
 
-            if (updates.teamLead !== undefined) {
+            let loadedTeamLead = null
+            if (!isTeamLead && updates.teamLead !== undefined) {
                 if (updates.teamLead && typeof updates.teamLead === "string") {
-                    const teamLead = await this.readUserFromDb(updates.teamLead as string);
-                    dbUser.teamLead = teamLead && teamLead.isTeamLead && teamLead.id !== user.id ? teamLead : null;
+                    const teamLead = await this.doReadUserFromDb(db, updates.teamLead as string, false);
+                    dbUser.teamLead = teamLead && teamLead.isTeamLead && teamLead.id !== user.id ? teamLead.id : null;
+                    if(dbUser.teamLead) {
+                        loadedTeamLead = teamLead;
+                    }
                 } else {
                     dbUser.teamLead = null;
                 }
             }
 
-            if(Object.keys(dbUser).length === 0) {
+            if (Object.keys(dbUser).length === 0) {
                 return;
             }
 
             return db.collection("users").updateOne(query, { $set: dbUser })
                 .then(() => {
-                   const updatedUser = Object.assign({}, user, dbUser);
-                   this.updateCache(updatedUser);
-                   return updatedUser;
+                    const updatedUser = Object.assign({}, user, dbUser);
+                    if(loadedTeamLead) {
+                        updatedUser.teamLead = loadedTeamLead;
+                    }
+                    this.updateCache(updatedUser);
+                    return updatedUser;
                 });
         });
     }
