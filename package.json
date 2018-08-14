@@ -1,0 +1,31 @@
+{
+  "name": "team-achievement-tracker-api",
+  "version": "0.1.0",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "start": "tsc && node dist/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Jamie Pennell",
+  "license": "ISC",
+  "dependencies": {
+    "@types/mongodb": "^3.1.1",
+    "body-parser": "^1.17.1",
+    "debug": "^2.6.4",
+    "express": "^4.15.2",
+    "express-utils": "git+https://github.com/jammie1903/express-utils.git",
+    "jsonwebtoken": "^8.3.0",
+    "mongodb": "^3.1.1",
+    "morgan": "^1.8.1",
+    "node-fetch": "^2.1.2",
+    "reflect-metadata": "^0.1.10"
+  },
+  "devDependencies": {
+    "@types/debug": "0.0.29",
+    "@types/node": "^7.0.13",
+    "@types/reflect-metadata": "0.0.5",
+    "typescript": "^2.2.2"
+  }
+}
