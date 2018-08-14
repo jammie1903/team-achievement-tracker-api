@@ -30,9 +30,19 @@ export default class UserService implements IUserService {
         setTimeout(() => this.spruceCache(), 60000);
     }
 
+    private updateCache(user) {
+        const keys = Object.keys(this.userCache)
+        for(const key of keys) {
+            if (this.userCache[key].user.id === user.id) {
+                this.userCache[key] = {user, time: Date.now()};
+                return;
+            }
+        };
+    }
+
     async getUser(token: string): Promise<IUser> {
         if (this.userCache[token]) {
-            return this.userCache[token];
+            return this.userCache[token].user;
         }
         const response = await fetch("https://team-achievement-tracker.netlify.com/.netlify/identity/user", { headers: { Authorization: "Bearer " + token } });
         const json = await response.json();
@@ -49,7 +59,7 @@ export default class UserService implements IUserService {
         if (dbUser) {
             Object.assign(user, dbUser);
         }
-        this.userCache[token] = user;
+        this.userCache[token] = {user, time: Date.now()};
         return user;
     }
 
@@ -90,15 +100,28 @@ export default class UserService implements IUserService {
             };
 
             const dbUser: IUser = {} as IUser;
-            if (updates.name && updates.name.trim()) {
-                dbUser.name = updates.name.trim()
-                const names = dbUser.name.split(/\s+/);
-                dbUser.firstName = names[0];
-                dbUser.lastName = names[1] || "";
+
+            let firstName = user.firstName;
+            if(updates.firstName && updates.firstName.trim()) {
+                firstName = updates.firstName.trim();
+                dbUser.firstName = firstName;
             }
+
+            let lastName = user.lastName;
+            if(updates.lastName && updates.lastName.trim()) {
+                lastName = updates.lastName.trim();
+                dbUser.lastName = lastName;
+            }
+
+            const fullName = `${firstName} ${lastName}`;
+            if(user.name !== fullName) {
+                dbUser.name = fullName;
+            }
+
             if (updates.isTeamLead !== undefined) {
                 dbUser.isTeamLead = !!updates.isTeamLead;
             }
+
             if (updates.teamLead !== undefined) {
                 if (updates.teamLead && typeof updates.teamLead === "string") {
                     const teamLead = await this.readUserFromDb(updates.teamLead as string);
@@ -108,8 +131,16 @@ export default class UserService implements IUserService {
                 }
             }
 
+            if(Object.keys(dbUser).length === 0) {
+                return;
+            }
+
             return db.collection("users").updateOne(query, { $set: dbUser })
-                .then(() => Object.assign({}, user, dbUser));
+                .then(() => {
+                   const updatedUser = Object.assign({}, user, dbUser);
+                   this.updateCache(updatedUser);
+                   return updatedUser;
+                });
         });
     }
 
