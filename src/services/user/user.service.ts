@@ -4,7 +4,7 @@ import fetch from "node-fetch";
 import { Unauthorized } from "http-errors";
 import { IUser } from "../../interfaces/i-user";
 import { IMongoService } from "../mongo/i-mongo.service";
-import { Db, Cursor } from "mongodb";
+import { Db, Cursor, FilterQuery } from "mongodb";
 import { IMongoItem } from "../../interfaces/i-mongo-item";
 
 @Service("userService")
@@ -138,7 +138,7 @@ export default class UserService implements IUserService {
                 if (updates.teamLead && typeof updates.teamLead === "string") {
                     const teamLead = await this.doReadUserFromDb(db, updates.teamLead as string, false);
                     dbUser.teamLead = teamLead && teamLead.isTeamLead && teamLead.id !== user.id ? teamLead.id : null;
-                    if(dbUser.teamLead) {
+                    if (dbUser.teamLead) {
                         loadedTeamLead = teamLead;
                     }
                 } else {
@@ -153,7 +153,7 @@ export default class UserService implements IUserService {
             return db.collection("users").updateOne(query, { $set: dbUser })
                 .then(() => {
                     const updatedUser = Object.assign({}, user, dbUser);
-                    if(loadedTeamLead) {
+                    if (loadedTeamLead) {
                         updatedUser.teamLead = loadedTeamLead;
                     }
                     this.updateCache(updatedUser);
@@ -162,22 +162,51 @@ export default class UserService implements IUserService {
         });
     }
 
-    getTeamLeads(): Promise<IUser[]> {
+    public getTeam(user: IUser): Promise<IUser[]> {
+        const teamLeadId = user.isTeamLead ? user.id : ((user.teamLead || {}) as IUser).id;
+        if (!teamLeadId) {
+            return Promise.resolve([]);
+        }
+        return this.mongoService.run((db: Db) => {
+            const query: any = {
+                $or: [{ _id: teamLeadId }, { teamLead: teamLeadId }]
+            };
+            return this.getUsers(db, query);
+        });
+    }
+
+    public isInTeam(teamLeadId: string, userId: string): Promise<boolean> {
+        return this.mongoService.run(async (db: Db) => {
+            const query: any = {
+                $and: [
+                    { $or: [{ _id: teamLeadId }, { teamLead: teamLeadId }] },
+                    { _id: userId }
+                ]
+            };
+            const count = await db.collection("users").countDocuments(query, {});
+            return count > 0;
+        });
+    }
+
+    public getTeamLeads(): Promise<IUser[]> {
         return this.mongoService.run((db: Db) => {
             const query: any = {
                 isTeamLead: true
             };
+            return this.getUsers(db, query);
+        });
+    }
 
-            const result: Cursor<IUser> = db.collection("users").find(query);
-            return new Promise<IUser[]>((res, rej) => {
-                const returnList: IUser[] = [];
-                result.forEach((user: IMongoItem<IUser>) => {
-                    user.id = user._id;
-                    delete user._id;
-                    returnList.push(user);
-                }, (err) => {
-                    err ? rej(err) : res(returnList);
-                });
+    private getUsers(db: Db, query: FilterQuery<any>): Promise<IUser[]> {
+        const result: Cursor<IUser> = db.collection("users").find(query);
+        return new Promise<IUser[]>((res, rej) => {
+            const returnList: IUser[] = [];
+            result.forEach((user: IMongoItem<IUser>) => {
+                user.id = user._id;
+                delete user._id;
+                returnList.push(user);
+            }, (err) => {
+                err ? rej(err) : res(returnList);
             });
         });
     }
