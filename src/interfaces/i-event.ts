@@ -9,4 +9,7 @@ export interface IEvent {
     author: string | IUser;
     approved: number;
     approvedBy: string | IUser;
+    likes: string[],
+    commentCount?: number,
+    likedByUser?: boolean
 }

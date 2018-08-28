@@ -4,6 +4,7 @@ import TokenContents from "../decorators/token.decorator";
 import { IUserService } from "../services/user/i-user.service";
 import { IEventService } from "../services/event/i-event.service";
 import { IEvent } from "../interfaces/i-event";
+import { IEventCounts } from "../interfaces/i-event-counts";
 
 @Controller("/user")
 export default class UserController implements IOnInit {
@@ -36,6 +37,11 @@ export default class UserController implements IOnInit {
     @Get("/events")
     public getUserEvents(@TokenContents() user: IUser): Promise<IEvent[]> {
         return this.eventService.getEventsForTeam(user);
+    }
+
+    @Get("/events/count")
+    public getUserEventCount(@TokenContents() user: IUser, @QueryParam("to") to: number, @QueryParam("from") from: number): Promise<IEventCounts[]> {
+        return this.eventService.getEventCount(user, to, from);
     }
 
 }
